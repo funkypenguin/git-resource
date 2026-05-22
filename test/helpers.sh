@@ -650,7 +650,7 @@ check_uri_with_key_and_ssh_agent() {
     source: {
       uri: $(echo $uri | jq -R .),
       private_key: $(cat $2 | jq -s -R .),
-      forward_agent: $3
+      forward_agent: $agent
     }
   }" | ${resource_dir}/check | tee /dev/stderr
 }
