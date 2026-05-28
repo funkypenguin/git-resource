@@ -1,0 +1,297 @@
+branch=$(jq -r '.source.branch // ""' <<< "$payload")
+branch=${branch# }
+paths="$(jq -r '(.source.paths // ["."])[]' <<< "$payload")" # those "'s are important
+ignore_paths="$(jq -r '":!" + (.source.ignore_paths // [])[]' <<< "$payload")" # these ones too
+tag_filter=$(jq -r '.source.tag_filter // ""' <<< "$payload")
+tag_filter=${tag_filter# }
+tag_regex=$(jq -r '.source.tag_regex // ""' <<< "$payload")
+tag_regex=${tag_regex# }
+tag_behaviour=$(jq -r '.source.tag_behaviour // "match_tagged"' <<< "$payload")
+ref=$(jq -r '.version.ref // ""' <<< "$payload")
+skip_ci_disabled=$(jq -r '.source.disable_ci_skip // false' <<< "$payload")
+filter_include=$(jq '.source.commit_filter.include // []' <<< "$payload")
+filter_include_all_match=$(jq -r '.source.commit_filter.include_all_match // false' <<< "$payload")
+filter_exclude=$(jq '.source.commit_filter.exclude // []' <<< "$payload")
+filter_exclude_all_match=$(jq -r '.source.commit_filter.exclude_all_match // false' <<< "$payload")
+version_depth=$(jq -r '.source.version_depth // 1' <<< "$payload")
+reverse=false
+
+if [[ -z "$uri" ]]; then
+    echo "source.uri is required and must not be empty"
+    exit 1
+fi
+
+# Optimization when last commit only is checked and skip ci is disabled
+# Get the commit id with git ls-remote instead of downloading the whole repo
+if [ "$skip_ci_disabled" = "true" ] && \
+   [ "$version_depth" = "1" ] && \
+   [ "$paths" = "." ] && \
+   [ -z "$ignore_paths" ] && \
+   [ -z "$tag_filter" ] && \
+   [ -z "$tag_regex" ] && \
+   jq -e 'length == 0' <<<"$filter_include" &>/dev/null && \
+   jq -e 'length == 0' <<<"$filter_exclude" &>/dev/null
+then
+  branchflag="HEAD"
+  if [ -n "$branch" ]; then
+    branchflag="$branch"
+  fi
+  commit=$(git ls-remote $uri $branchflag | awk 'NR<=1{print $1}')
+  if [ -z "$commit" ]; then
+    echo "No commit returned. Invalid branch?"
+    exit 1
+  fi
+  if [ -z "$ref" ] || [ "$ref" = "$commit" ]; then
+    echo $commit | jq -R '.' | jq -s "map({ref: .})" >&3
+    exit 0
+  fi
+fi
+
+tagflag=""
+if [ -n "$tag_filter" ] && [ -n "$tag_regex" ] ; then
+  echo "Cannot provide both tag_filter and tag_regex"
+  exit 1
+elif [ -n "$tag_filter" ] || [ -n "$tag_regex" ] ; then
+  tagflag="--tags"
+else
+  tagflag="--no-tags"
+fi
+
+if [ "$tag_behaviour" != "match_tagged" ] && [ "$tag_behaviour" != "match_tag_ancestors" ]; then
+  echo "Invalid tag_behaviour. Must be one of 'match_tagged' or 'match_tag_ancestors'."
+  exit 1
+fi
+
+for filter in "$filter_include" "$filter_exclude"
+do
+  if jq -e 'type != "array"' <<<"$filter" &>/dev/null
+  then
+    echo 'invalid commit filter (expected array of strings)'
+    echo "$filter"
+    exit 1
+  fi
+done
+
+if [ "$version_depth" -le 0 ]; then
+  echo "Invalid version_depth. Must be <= 0."
+  exit 1
+fi
+
+# We're just checking for commits; we don't ever need to fetch LFS files here!
+export GIT_LFS_SKIP_SMUDGE=1
+
+if [ -d $destination ]; then
+  cd $destination
+  if [ "$tagflag" = "--tags" ]; then
+    git fetch origin 'refs/heads/*:refs/heads/*' --tags -f
+  else
+    git fetch origin $tagflag $branch -f
+    git reset --soft FETCH_HEAD
+  fi
+else
+  branchflag=""
+  if [ -n "$branch" ]; then
+    branchflag="--branch $branch"
+  fi
+
+  # Determine optimal filter based on whether path filtering is used
+  if [ "$paths" = "." ] && [ -z "$ignore_paths" ]; then
+      # No path filtering - use most aggressive filter for maximum performance
+      filter_flag="--filter=tree:0"
+  else
+      # Path filtering needed - keep trees to analyze paths, skip blobs
+      filter_flag="--filter=blob:none"
+  fi
+
+  if [ "$tagflag" = "--tags" ]; then
+    # For tag filtering, don't use --single-branch - tags may be on any branch
+    git clone --bare $filter_flag --progress $uri $destination --tags
+  else
+    git clone --bare $filter_flag --single-branch --progress $uri $branchflag $destination $tagflag
+  fi
+  cd $destination
+  # bare clones don't configure the refspec
+  if [ -n "$branch" ]; then
+    git remote set-branches --add origin $branch
+  fi
+fi
+
+if [ -n "$ref" ] && git cat-file -e "$ref"; then
+  reverse=true
+  log_range="${ref}~1..HEAD"
+
+  # if ${ref} does not have parents, ${ref}~1 raises the error: "unknown revision or path not in the working tree"
+  # the initial commit in a branch will never have parents, but rarely, subsequent commits can also be parentless
+  orphan_commits=$(git rev-list --max-parents=0 HEAD)
+  for orphan_commit in ${orphan_commits}; do
+    if [ "${ref}" = "${orphan_commit}" ]; then
+      log_range="HEAD"
+      break
+    fi
+  done
+else
+  log_range=""
+  ref=""
+fi
+
+if [ "$paths" = "." ] && [ -z "$ignore_paths" ]; then
+  paths_search=""
+else
+  paths_search=`echo "-- $paths $ignore_paths" | tr "\n\r" " "`
+fi
+
+list_command="git rev-list --all --first-parent $log_range $paths_search"
+if jq -e 'length > 0' <<<"$filter_include" &>/dev/null
+then
+    list_command+=" | git rev-list --stdin --date-order  --first-parent --no-walk=unsorted "
+    include_items=$(echo $filter_include | jq -r -c '.[]')
+    for wli in "$include_items"
+    do
+        list_command+=" --grep=\"$wli\""
+    done
+    if [ "$filter_include_all_match" == "true" ]; then
+      list_command+=" --all-match"
+    fi
+fi
+
+if jq -e 'length > 0' <<<"$filter_exclude" &>/dev/null
+then
+    list_command+=" | git rev-list --stdin --date-order --invert-grep --first-parent --no-walk=unsorted "
+    exclude_items=$(echo $filter_exclude | jq -r -c '.[]')
+    for bli in "$exclude_items"
+    do
+        list_command+=" --grep=\"$bli\""
+    done
+    if [ "$filter_exclude_all_match" == "true" ]; then
+      list_command+=" --all-match"
+    fi
+fi
+
+
+if [ "$skip_ci_disabled" != "true" ]; then
+  list_command+=" | git rev-list --stdin --date-order  --grep=\"\\[ci\\sskip\\]\" --grep=\"\\[skip\\sci\\]\" --invert-grep --first-parent --no-walk=unsorted"
+fi
+
+replace_escape_chars() {
+  sed -e 's/[]\/$*.^[]/\\&/g' <<< $1
+}
+
+lines_including_and_after() {
+  local escaped_string=$(replace_escape_chars $1)
+  sed -ne "/$escaped_string/,$ p"
+}
+
+#if no range is selected just grab the last commit that fits the filter
+if [ -z "$log_range" ] && [ -z "$tag_filter" ] && [ -z "$tag_regex" ]
+then
+    list_command+="| git rev-list --stdin --date-order --no-walk=unsorted -$version_depth --reverse"
+fi
+
+if [ "$reverse" == "true" ] && [ -z "$tag_filter" ] && [ -z "$tag_regex" ]
+then
+    list_command+="| git rev-list --stdin --date-order  --first-parent --no-walk=unsorted --reverse"
+fi
+
+get_tags_matching_filter() {
+  local list_command=$1
+  local tags=$2
+  for tag in $tags; do
+    # We turn the tag ref (e.g. v1.0.0) into the object name
+    # (e.g. 1a410efbd13591db07496601ebc7a059dd55cfe9) and use grep to check it is in the output
+    # of list_command - if it isn't, it doesn't pass one of the other filters and shouldn't be
+    # outputted.
+    local commit=$(git rev-list -n 1 $tag)
+    local this_list_command="$list_command | grep -cFx \"$commit\""
+    local list_output="$(set -f; eval "$this_list_command"; set +f)"
+    if [ "$list_output" -ge 1 ]; then
+      jq -cn '{ref: $tag, commit: $commit}' --arg tag $tag --arg commit $commit
+    fi
+  done
+}
+
+get_tags_match_ancestors_filter() {
+  local list_command=$1
+  local tags=$2
+
+  # Sort commits so that we look at the oldest commits first
+  local this_list_command="$list_command | git rev-list --stdin --date-order --first-parent --no-walk=unsorted --reverse"
+  local list_output="$(set -f; eval "$this_list_command"; set +f)"
+
+  # Store all the tag names in an associative array for quick lookups.
+  # Also gather the commits each tag is attached to so we can quickly match
+  # candidate commits in a best-case scenario.
+  declare -A eligible_tag_names=()
+  declare -A eligible_tag_commits=()
+  local tag tag_commit
+  for tag in $tags; do
+    eligible_tag_names["$tag"]=1
+    tag_commit=$(git rev-list -n 1 "$tag" 2>/dev/null || true)
+    if [ -n "$tag_commit" ]; then
+      eligible_tag_commits["$tag_commit"]=1
+    fi
+  done
+
+  # Check each commit and only output commits that are ancestors of tags.
+  for commit in $list_output; do
+    local is_ancestor=false
+
+    # Fast path: check if the commit itself is the target of an eligible tag
+    if [ -n "${eligible_tag_commits[$commit]+x}" ]; then
+      is_ancestor=true
+    else
+      # Find all the tags whose history contains this commit - then check if
+      # any are eligible tags
+      local containing_tag
+      while IFS= read -r containing_tag; do
+        [ -z "$containing_tag" ] && continue
+        if [ -n "${eligible_tag_names[$containing_tag]+x}" ]; then
+          is_ancestor=true
+          break
+        fi
+      done < <(git tag --contains "$commit")
+    fi
+
+    if [ "$is_ancestor" = true ]; then
+      jq -cn '{ref: $commit}' --arg commit $commit
+    fi
+  done
+}
+
+if [ -n "$tag_filter" ] || [ -n "$tag_regex" ]; then
+  # Create a suffix to "git tag" that will apply the tag filter
+  if [ -n "$tag_filter" ]; then
+    tag_filter_cmd="--list \"$tag_filter\""
+  elif [ -n "$tag_regex" ]; then
+    tag_filter_cmd="| grep -Ex \"$tag_regex\""
+  fi
+
+  # Build a list of tag refs (e.g. v1.0.0) that match the filter
+  if [ -n "$ref" ] && [ -n "$branch" ]; then
+    tags=$(set -f; eval "git tag --sort=creatordate --contains $ref --merged $branch $tag_filter_cmd"; set +f)
+  elif [ -n "$ref" ]; then
+    tags=$(set -f; eval "git tag --sort=creatordate $tag_filter_cmd | lines_including_and_after $ref"; set +f)
+  else
+    branch_flag=
+    if [ -n "$branch" ]; then
+      branch_flag="--merged $branch"
+    fi
+    tags=$(set -f; eval "git tag --sort=creatordate $branch_flag $tag_filter_cmd"; set +f)
+  fi
+
+  # Only proceed if we actually found any tags
+  if [ -n "$tags" ]; then
+    if [ "$tag_behaviour" == "match_tagged" ]; then
+      get_tags_matching_filter "$list_command" "$tags" | tail "-$version_depth" | jq -s "map(.)" >&3
+    else
+      get_tags_match_ancestors_filter "$list_command" "$tags" | tail "-$version_depth" | jq -s "map(.)" >&3
+    fi
+  else
+    jq -n "[]" >&3
+  fi
+else
+  {
+    set -f
+    eval "$list_command"
+    set +f
+  } | jq -R '.' | jq -s "map({ref: .})" >&3
+fi
