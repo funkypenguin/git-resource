@@ -32,6 +32,13 @@ init_repo() {
 
     git init -q
 
+    # Disable automatic gc/maintenance. git >= 2.54 forks background maintenance
+    # (repack/prune/commit-graph) after commits; with the rapid commits some
+    # tests create, this races the foreground commits and corrupts the fixture,
+    # surfacing as flaky "could not read"/"unable to parse commit" failures.
+    git config gc.auto 0
+    git config maintenance.auto false
+
     # start with an initial commit
     git \
       -c user.name='test' \
