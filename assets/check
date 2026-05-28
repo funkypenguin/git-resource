@@ -45,6 +45,9 @@ case "$version_type" in
     commits)
         source "${assets}/check_commits.sh"
         ;;
+    tags)
+        source "${assets}/check_tags.sh"
+        ;;
     branches)
         source "${assets}/check_branches.sh"
         ;;
