@@ -1,4 +1,5 @@
 {
+  "version_type": "",
   "uri": "",
   "branch": "",
   "private_key": "",
@@ -27,5 +28,8 @@
   "version_depth": "",
   "search_remote_refs": "",
   "debug": "",
-  "version_type": ""
+  "branch_filters": "",
+  "branch_regex": "",
+  "tag_filters": "",
+  "tag_sort": ""
 }
