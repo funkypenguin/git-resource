@@ -15,9 +15,6 @@ if [ -z "$source" ]; then
   exit 1
 fi
 
-# for jq
-PATH=/usr/local/bin:$PATH
-
 payload="$(cat <&0)"
 
 unknown_keys=$(jq --slurpfile schema "$(dirname $0)/out_schema.json" '(.params // [] | keys_unsorted) - ($schema[0] | keys_unsorted)' <<< "$payload")

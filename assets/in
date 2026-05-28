@@ -15,9 +15,6 @@ if [ -z "$destination" ]; then
   exit 1
 fi
 
-# for jq
-PATH=/usr/local/bin:$PATH
-
 bin_dir="${0%/*}"
 if [ "${bin_dir#/}" == "$bin_dir" ]; then
   bin_dir="$PWD/$bin_dir"
