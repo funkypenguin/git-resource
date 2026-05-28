@@ -1,0 +1,267 @@
+branch=$(jq -r '.source.branch // ""' <<< "$payload")
+sparse_paths="$(jq -r '(.source.sparse_paths // ["."])[]' <<< "$payload")" # those "'s are important
+ref=$(jq -r '.version.ref // "HEAD"' <<< "$payload")
+override_branch=$(jq -r '.version.branch // ""' <<< "$payload")
+depth=$(jq -r '(.params.depth // 0)' <<< "$payload")
+fetch=$(jq -r '(.params.fetch // [])[]' <<< "$payload")
+submodules=$(jq -r '(.params.submodules // "all")' <<< "$payload")
+submodule_recursive=$(jq -r '(.params.submodule_recursive // true)' <<< "$payload")
+submodule_remote=$(jq -r '(.params.submodule_remote // false)' <<< "$payload")
+commit_verification_key_ids=$(jq -r '(.source.commit_verification_key_ids // [])[]' <<< "$payload")
+commit_verification_keys=$(jq -r '(.source.commit_verification_keys // [])[]' <<< "$payload")
+tag_filter=$(jq -r '.source.tag_filter // ""' <<< "$payload")
+tag_regex=$(jq -r '.source.tag_regex // ""' <<< "$payload")
+fetch_tags=$(jq -r '.params.fetch_tags' <<< "$payload")
+gpg_keyserver=$(jq -r '.source.gpg_keyserver // "hkp://keyserver.ubuntu.com/"' <<< "$payload")
+disable_git_lfs=$(jq -r '(.params.disable_git_lfs // false)' <<< "$payload")
+clean_tags=$(jq -r '(.params.clean_tags // false)' <<< "$payload")
+short_ref_format=$(jq -r '(.params.short_ref_format // "%s")' <<< "$payload")
+timestamp_format=$(jq -r '(.params.timestamp_format // "iso8601")' <<< "$payload")
+describe_ref_options=$(jq -r '(.params.describe_ref_options // "--always --dirty --broken")' <<< "$payload")
+search_remote_refs_flag=$(jq -r '(.source.search_remote_refs // false)' <<< "$payload")
+all_branches=$(jq -r '(.params.all_branches // false)' <<< "$payload")
+
+# If params not defined, get it from source
+if [ -z "$fetch_tags" ] || [ "$fetch_tags" == "null" ]  ; then
+  fetch_tags=$(jq -r '.source.fetch_tags' <<< "$payload")
+fi
+
+if [ -z "$uri" ]; then
+  echo "invalid payload (missing uri):" >&2
+  cat $payload >&2
+  exit 1
+fi
+
+branchflag=""
+if [ -n "$branch" ]; then
+  branchflag="--branch $branch"
+fi
+
+if [ -n "$override_branch" ]; then
+  echo "Override $branch with $override_branch"
+  branchflag="--branch $override_branch"
+fi
+
+depthflag=""
+if test "$depth" -gt 0 2> /dev/null; then
+  depthflag="--depth $depth"
+fi
+
+tagflag=""
+if [ "$fetch_tags" == "false" ] ; then
+  tagflag="--no-tags"
+elif [ -n "$tag_filter" ] || [ -n "$tag_regex" ] || [ "$fetch_tags" == "true" ] ; then
+  tagflag="--tags"
+fi
+
+nocheckoutflag=""
+if [ "$sparse_paths" != "." ] && [ "$sparse_paths" != "" ]; then
+    nocheckoutflag=" --no-checkout"
+fi
+
+if [ "$disable_git_lfs" == "true" ]; then
+  # skip the fetching of LFS objects for all following git commands
+  export GIT_LFS_SKIP_SMUDGE=1
+fi
+
+singlebranchflag="--single-branch"
+if [ "${all_branches,,}" == "true" ]; then
+  singlebranchflag=""
+fi
+
+git clone --progress $singlebranchflag $depthflag $uri $branchflag $destination $tagflag $nocheckoutflag
+
+cd $destination
+
+configure_git_local "${git_config_payload}"
+
+if [ "$sparse_paths" != "." ] && [ "$sparse_paths" != "" ]; then
+  git config core.sparseCheckout true
+  echo "$sparse_paths" >> ./.git/info/sparse-checkout
+fi
+
+git fetch origin refs/notes/*:refs/notes/* $tagflag
+
+if [ "$depth" -gt 0 ]; then
+  "$bin_dir"/deepen_shallow_clone_until_ref_is_found_then_check_out "$depth" "$ref" "$tagflag"
+else
+  if [ "$search_remote_refs_flag" == "true" ] && ! [ -z "$branchflag" ] && ! git rev-list -1 $ref 2> /dev/null > /dev/null; then
+    change_ref=$(git ls-remote origin | grep $ref | cut -f2)
+    if ! [ -z "$change_ref" ]; then
+      echo "$ref not found locally, but search_remote_refs is enabled. Attempting to fetch $change_ref first."
+      git fetch origin $change_ref
+    else
+      echo "WARNING: couldn't find a ref for $ref listed on the remote"
+    fi
+  fi
+  git checkout -f -q "$ref"
+fi
+
+invalid_key() {
+  echo "Invalid GPG key in: ${commit_verification_keys}"
+  exit 2
+}
+
+commit_not_signed() {
+  commit_id=$(git rev-parse ${ref})
+  echo "The commit ${commit_id} is not signed"
+  exit 1
+}
+
+if [ ! -z "${commit_verification_keys}" ] || [ ! -z "${commit_verification_key_ids}" ] ; then
+  if [ ! -z "${commit_verification_keys}" ]; then
+    echo "${commit_verification_keys}" | gpg --batch --import || invalid_key "${commit_verification_keys}"
+  fi
+  if [ ! -z "${commit_verification_key_ids}" ]; then
+    echo "${commit_verification_key_ids}" | \
+      xargs --no-run-if-empty -n1 gpg --batch --keyserver $gpg_keyserver --recv-keys
+  fi
+  git verify-commit $(git rev-list -n 1 $ref) || commit_not_signed
+fi
+
+git log -1 --oneline
+git clean --force --force -d
+git submodule sync
+
+if [ -f $GIT_CRYPT_KEY_PATH ]; then
+  echo "unlocking git repo"
+  git-crypt unlock $GIT_CRYPT_KEY_PATH
+fi
+
+
+submodule_parameters=""
+if [ "$submodule_remote" != "false" ]; then
+  submodule_parameters+=" --remote "
+fi
+if [ "$submodule_recursive" != "false" ]; then
+  submodule_parameters+=" --recursive "
+fi
+
+if [ "$submodules" != "none" ]; then
+  value_regexp="."
+  if [ "$submodules" != "all" ]; then
+    value_regexp="$(echo $submodules | jq -r 'map(. + "$") | join("|")')"
+  fi
+
+  {
+    git config --file .gitmodules --name-only --get-regexp '\.path$' "$value_regexp" |
+      sed -e 's/^submodule\.\(.\+\)\.path$/\1/'
+  } | while read submodule_name; do
+    submodule_path="$(git config --file .gitmodules --get "submodule.${submodule_name}.path")"
+    submodule_url="$(git config --file .gitmodules --get "submodule.${submodule_name}.url")"
+
+    if [ "$depth" -gt 0 ]; then
+      git config "submodule.${submodule_name}.update" "!$bin_dir/deepen_shallow_clone_until_ref_is_found_then_check_out $depth"
+    fi
+
+    if ! [ -e "$submodule_path" ]; then
+      echo $'\e[31m'"warning: skipping missing submodule: $submodule_path"$'\e[0m'
+      continue
+    fi
+
+    # check for ssh submodule_credentials
+    submodule_cred=$(jq --arg submodule_url "${submodule_url}" '.source.submodule_credentials // [] | [.[] | select(.url==$submodule_url)] | first // empty' <<< ${payload})
+
+    if [[ -z ${submodule_cred} ]]; then
+
+      # update normally
+      git submodule update --init --no-fetch $depthflag $submodule_parameters "$submodule_path"
+
+    else
+
+      # create or re-initialize ssh-agent
+      init_ssh_agent
+
+      private_key=$(jq -r '.private_key' <<< ${submodule_cred})
+      passphrase=$(jq -r '.private_key_passphrase // empty' <<< ${submodule_cred})
+
+      private_key_path=$(mktemp -t git-resource-submodule-private-key.XXXXXX)
+      echo "${private_key}" > ${private_key_path}
+      chmod 0600 ${private_key_path}
+
+      # add submodule private_key identity
+      SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=$(dirname $0)/askpass.sh GIT_SSH_PRIVATE_KEY_PASS="$passphrase" DISPLAY= ssh-add $private_key_path > /dev/null
+
+      git submodule update --init --no-fetch $depthflag $submodule_parameters "$submodule_path"
+
+      # restore main ssh-agent (if needed)
+      load_pubkey "${payload}"
+
+    fi
+
+    if [ "$depth" -gt 0 ]; then
+      git config --unset "submodule.${submodule_name}.update"
+    fi
+  done
+fi
+
+for branch in $fetch; do
+  git fetch origin $branch
+  if ! git show-ref --verify --quiet refs/heads/$branch; then
+    git branch $branch FETCH_HEAD
+  fi
+done
+
+if [ "$ref" == "HEAD" ]; then
+  return_ref=$(git rev-parse HEAD)
+else
+  return_ref=$ref
+fi
+
+# Store committer email in .git/committer. Can be used to send email to last committer on failed build
+# Using https://github.com/mdomke/concourse-email-resource for example
+git --no-pager log -1 --pretty=format:"%ae" > .git/committer
+
+git --no-pager log -1 --pretty=format:"%an" > .git/committer_name
+
+# Store git-resource returned version ref .git/ref. Useful to know concourse
+# pulled ref in following tasks and resources.
+echo "${return_ref}" > .git/ref
+
+metadata=$(git_metadata)
+echo "${metadata}" | jq '.' > .git/metadata.json
+
+# Store short ref with templating. Useful to build Docker images with
+# a custom tag
+echo "${return_ref}" | cut -c1-7 | awk "{ printf \"${short_ref_format}\", \$1 }" > .git/short_ref
+
+# Write individual metadata fields to separate files
+
+# .git/commit - full SHA hash
+echo "${metadata}" | jq -r '.[] | select(.name == "commit") | .value' > .git/commit
+# .git/author - commit author name
+echo "${metadata}" | jq -r '.[] | select(.name == "author") | .value' > .git/author
+# .git/author_date - timestamp when the author originally created the commit
+echo "${metadata}" | jq -r '.[] | select(.name == "author_date") | .value' > .git/author_date
+
+# .git/tags - branch name(s) containing this commit (comma-separated if multiple)
+echo "${metadata}" | jq -r '.[] | select(.name == "branch") | .value // ""' > .git/branch
+# .git/tags - comma-separated list of tags
+echo "${metadata}" | jq -r '.[] | select(.name == "tags") | .value // ""' > .git/tags
+# .git/url - web URL to view commit (if applicable)
+echo "${metadata}" | jq -r '.[] | select(.name == "url") | .value // ""' > .git/url
+# .git/committer_date - timestamp when the commit was created in the repository
+echo "${metadata}" | jq -r '.[] | select(.name == "committer_date") | .value // ""' > .git/committer_date
+
+# Store commit message in .git/commit_message. Can be used to inform about
+# the content of a successful build.
+# Using https://github.com/cloudfoundry-community/slack-notification-resource
+# for example
+git log -1 --format=format:%B > .git/commit_message
+
+# Store commit date in .git/commit_timestamp. Can be used for tagging builds
+git log -1 --format=%cd --date=${timestamp_format} > .git/commit_timestamp
+
+# Store describe_ref when available. Useful to build Docker images with
+# a custom tag, or package to publish
+echo "$(git describe ${describe_ref_options})" > .git/describe_ref
+
+
+if [ "$clean_tags" == "true" ]; then
+  git tag | xargs git tag -d
+fi
+
+jq -n "{
+  version: {ref: $(echo $return_ref | jq -R .)},
+  metadata: $metadata
+}" >&3
