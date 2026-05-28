@@ -943,7 +943,7 @@ The list of remote branches are enumerated, filtered by `branch_filters` or
 any branches are new or removed, a new version is emitted. Branches are sorted
 lexicographically using `sort` before comparing.
 
-If no branches are found a special `EMPTY` version is emitted.
+If no branches are found a special `NONE` version is emitted.
 
 ### `get`: List the given branches
 

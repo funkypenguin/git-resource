@@ -38,7 +38,7 @@ sorted_branches=${sorted_branches%,}
 
 if [[ -z "$sorted_branches" ]]; then
     echo "No matching branches found. Setting empty version."
-    sorted_branches="EMPTY"
+    sorted_branches="NONE"
 fi
 
 if [[ "$sorted_branches" == "$prev_branches" ]]; then
