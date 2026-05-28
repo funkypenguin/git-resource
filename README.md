@@ -1,6 +1,6 @@
 # Git Resource
 
-Tracks the commits in a [git](http://git-scm.com/) repository.
+Tracks commits, tags, or branches in a [git](http://git-scm.com/) repository.
 
 <a href="https://ci.concourse-ci.org/teams/main/pipelines/resource/jobs/build?vars.type=%22git%22">
   <img src="https://ci.concourse-ci.org/api/v1/teams/main/pipelines/resource/jobs/build/badge?vars.type=%22git%22" alt="Build Status">
@@ -15,19 +15,26 @@ Tracks the commits in a [git](http://git-scm.com/) repository.
     <th>Description</th>
   </tr>
   <tr>
-    <td><code>uri</code> (Required)</td>
-    <td>The location of the repository.</td>
+    <td><code>version_type</code> (Optional)</td>
+    <td>
+        <ul>
+            <li><code>commits</code> (Default): Resource will return commits from the specified branch. Can also be used to find tags on a branch.</li>
+            <li><code>tags</code>: Resource will find matching tags from the git repo.</li>
+            <li><code>branches</code>: Resource will return a list of branches from the git repo.</li>
+        </ul>
+    </td>
+  </tr>
+</table>
+
+The following fields are used by all `version_type`'s.
+<table>
+  <tr>
+    <th>Field Name</th>
+    <th>Description</th>
   </tr>
   <tr>
-    <td><code>branch</code> (Optional)</td>
-    <td>
-        The branch to track. This is optional if the resource is only used in
-        <code>get</code> steps; however, it is required when used in a
-        <code>put</code> step. If unset, <code>get</code> steps will checkout
-        the repository's default branch; usually <code>master</code> but <a
-        href="https://help.github.com/articles/setting-the-default-branch/">could
-        be different</a>.
-    </td>
+    <td><code>uri</code> (Required)</td>
+    <td>The location of the repository.</td>
   </tr>
   <tr>
     <td><code>private_key</code> (Optional)</td>
@@ -61,105 +68,8 @@ private_key: |
     <td>Password for HTTP(S) auth when pulling/pushing.</td>
   </tr>
   <tr>
-    <td><code>paths</code> (Optional)</td>
-    <td>
-        If specified (as a list of glob patterns), only changes to the specified files will yield new versions from <code>check</code>.
-        Example:
-        <pre>
-- name: repo
-  type: git
-  source:
-    paths:
-      - some-folder/*
-      - another/folder/path/*
-        </pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>sparse_paths</code> (Optional)</td>
-    <td>
-        If specified (as a list of glob patterns), only these paths will be
-        checked out. Should be used with <code>paths</code> to only trigger on
-        desired paths. <code>paths</code> and <code>sparse_paths</code> may be
-        the same or you can configure <code>sparse_paths</code> to check out
-        other paths.
-        Example:
-        <pre>
-- name: repo
-  type: git
-  source:
-    paths:
-      - some-folder/*
-      - another/folder/path/*
-    sparse_paths:
-      - some-folder/*
-      - another/folder/path/*
-        </pre>
-    </td>
-  </tr>
-  <tr>
-    <td><code>ignore_paths</code> (Optional)</td>
-    <td>
-        The inverse of <code>paths</code>; changes to the specified files are
-        ignored. <p>Note that if you want to push commits that change these
-        files via a <code>put</code>, the commit will still be "detected", as <a
-        href="https://github.com/concourse/concourse/issues/534"><code>check</code>
-        and <code>put</code> both introduce versions</a>. To avoid this you
-        should define a second resource that you use for commits that change
-        files that you don't want to feed back into your pipeline - think of one
-        as read-only (with <code>ignore_paths</code>) and one as write-only
-        (which shouldn't need it).</p>
-        Example:
-        <pre>
-- name: repo
-  type: git
-  source:
-    ignore_paths:
-      - some-folder/*
-      - another/folder/path/*
-        </pre>
-    </td>
-  </tr>
-  <tr>
     <td><code>skip_ssl_verification</code> (Optional)</td>
     <td>Skips git ssl verification by exporting <code>GIT_SSL_NO_VERIFY=true</code>.</td>
-  </tr>
-  <tr>
-    <td><code>tag_filter</code> (Optional)</td>
-    <td>
-        If specified, the resource will only detect commits that have a tag
-        matching the expression that have been made against the
-        <code>branch</code>. Patterns are <a
-        href="http://man7.org/linux/man-pages/man7/glob.7.html">glob(7)</a>
-        compatible (as in, bash compatible).
-    </td>
-  </tr>
-  <tr>
-    <td><code>tag_regex</code> (Optional)</td>
-    <td>
-        If specified, the resource will only detect commits that have a tag
-        matching the expression that have been made against the
-        <code>branch</code>. Patterns are <a
-        href="https://www.gnu.org/software/grep/manual/grep.html">grep</a>
-        compatible (extended matching enabled, matches entire lines only).
-        Ignored if <code>tag_filter</code> is also specified.
-    </td>
-  </tr>
-  <tr>
-    <td><code>tag_behaviour</code> (Optional)</td>
-    <td>
-        If <code>match_tagged</code> (the default), then the resource will only
-        detect commits that are tagged with a tag matching
-        <code>tag_regex</code> and <code>tag_filter</code>, and match all other
-        filters. If <code>match_tag_ancestors</code>, then the resource will
-        only detect commits matching all other filters and that are ancestors of
-        a commit that are tagged with a tag matching <code>tag_regex</code> and
-        <code>tag_filter</code>.
-    </td>
-  </tr>
-  <tr>
-    <td><code>fetch_tags</code> (Optional)</td>
-    <td>If <code>true</code> the flag <code>--tags</code> will be used to fetch all tags in the repository. If <code>false</code> no tags will be fetched.</td>
   </tr>
   <tr>
     <td><code>submodule_credentials</code> (Optional)</td>
@@ -262,6 +172,136 @@ git_config:
     </td>
   </tr>
   <tr>
+    <td><code>debug</code> (Optional)</td>
+    <td>
+        Set to <code>true</code> to enable. Sets the following for check/get/put
+        steps of the resource. Secrets may not be correctly redacted due the
+        JSON encoding of longer secret strings.
+        <pre>
+set -x
+export GIT_TRACE=1
+export GIT_TRACE_PACKFILE=1
+export GIT_CURL_VERBOSE=1
+        </pre>
+    </td>
+  </tr>
+</table>
+
+The following fields are used exclusively by `version_type: commits`.
+<table>
+  <tr>
+    <th>Field Name</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>branch</code> (Optional)</td>
+    <td>
+        The branch to track. This is optional if the resource is only used in
+        <code>get</code> steps; however, it is required when used in a
+        <code>put</code> step. If unset, <code>get</code> steps will checkout
+        the repository's default branch; usually <code>master</code> but <a
+        href="https://help.github.com/articles/setting-the-default-branch/">could
+        be different</a>.
+    </td>
+  </tr>
+  <tr>
+    <td><code>paths</code> (Optional)</td>
+    <td>
+        If specified (as a list of glob patterns), only changes to the specified files will yield new versions from <code>check</code>.
+        Example:
+        <pre>
+- name: repo
+  type: git
+  source:
+    paths:
+      - some-folder/*
+      - another/folder/path/*
+        </pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>sparse_paths</code> (Optional)</td>
+    <td>
+        If specified (as a list of glob patterns), only these paths will be
+        checked out. Should be used with <code>paths</code> to only trigger on
+        desired paths. <code>paths</code> and <code>sparse_paths</code> may be
+        the same or you can configure <code>sparse_paths</code> to check out
+        other paths.
+        Example:
+        <pre>
+- name: repo
+  type: git
+  source:
+    paths:
+      - some-folder/*
+      - another/folder/path/*
+    sparse_paths:
+      - some-folder/*
+      - another/folder/path/*
+        </pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>ignore_paths</code> (Optional)</td>
+    <td>
+        The inverse of <code>paths</code>; changes to the specified files are
+        ignored. <p>Note that if you want to push commits that change these
+        files via a <code>put</code>, the commit will still be "detected", as <a
+        href="https://github.com/concourse/concourse/issues/534"><code>check</code>
+        and <code>put</code> both introduce versions</a>. To avoid this you
+        should define a second resource that you use for commits that change
+        files that you don't want to feed back into your pipeline - think of one
+        as read-only (with <code>ignore_paths</code>) and one as write-only
+        (which shouldn't need it).</p>
+        Example:
+        <pre>
+- name: repo
+  type: git
+  source:
+    ignore_paths:
+      - some-folder/*
+      - another/folder/path/*
+        </pre>
+    </td>
+  </tr>
+  <tr>
+    <td><code>tag_filter</code> (Optional)</td>
+    <td>
+        If specified, the resource will only detect commits that have a tag
+        matching the expression that have been made against the
+        <code>branch</code>. Patterns are <a
+        href="http://man7.org/linux/man-pages/man7/glob.7.html">glob(7)</a>
+        compatible (as in, bash compatible).
+    </td>
+  </tr>
+  <tr>
+    <td><code>tag_regex</code> (Optional)</td>
+    <td>
+        If specified, the resource will only detect commits that have a tag
+        matching the expression that have been made against the
+        <code>branch</code>. Patterns are <a
+        href="https://www.gnu.org/software/grep/manual/grep.html">grep</a>
+        compatible (extended matching enabled, matches entire lines only).
+        Ignored if <code>tag_filter</code> is also specified.
+    </td>
+  </tr>
+  <tr>
+    <td><code>tag_behaviour</code> (Optional)</td>
+    <td>
+        If <code>match_tagged</code> (the default), then the resource will only
+        detect commits that are tagged with a tag matching
+        <code>tag_regex</code> and <code>tag_filter</code>, and match all other
+        filters. If <code>match_tag_ancestors</code>, then the resource will
+        only detect commits matching all other filters and that are ancestors of
+        a commit that are tagged with a tag matching <code>tag_regex</code> and
+        <code>tag_filter</code>.
+    </td>
+  </tr>
+  <tr>
+    <td><code>fetch_tags</code> (Optional)</td>
+    <td>If <code>true</code> the flag <code>--tags</code> will be used to fetch all tags in the repository. If <code>false</code> no tags will be fetched.</td>
+  </tr>
+  <tr>
     <td><code>commit_filter</code> (Optional)</td>
     <td>Object containing commit message filters
       <ul>
@@ -294,18 +334,64 @@ commit_filter:
         usually create. See also <code>out params.refs_prefix</code>.
     </td>
   </tr>
+</table>
+
+The following fields are used exclusively by `version_type: tags`.
+<table>
   <tr>
-    <td><code>debug</code> (Optional)</td>
+    <th>Field Name</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>tag_filters</code> (Optional)</td>
     <td>
-        Set to <code>true</code> to enable. Sets the following for check/get/put
-        steps of the resource. Secrets may not be correctly redacted due the
-        JSON encoding of longer secret strings.
-        <pre>
-set -x
-export GIT_TRACE=1
-export GIT_TRACE_PACKFILE=1
-export GIT_CURL_VERBOSE=1
-        </pre>
+        A list of glob patterns used to filter tags. Only matching tags will be
+        returned. Patterns are <a href="http://man7.org/linux/man-pages/man7/glob.7.html">glob(7)</a>
+        compatible (as in, bash compatible). If you're only specifying one glob
+        pattern you can use <code>tag_filter</code>.
+    </td>
+  </tr>
+  <tr>
+    <td><code>tag_regex</code> (Optional)</td>
+    <td>
+        Regex pattern used to filter tags. Only matching tags will be returned.
+        Patterns are <a href="https://www.gnu.org/software/grep/manual/grep.html">grep</a>
+        compatible (extended matching enabled).
+        Ignored if <code>tag_filter(s)</code> is also specified.
+    </td>
+  </tr>
+  <tr>
+    <td><code>tag_sort</code> (Optional)</td>
+    <td> Sorting is applied after filtering. Accepts the following values:
+        <ul>
+            <li><code>creatordate</code> (Default): Uses git's built-in sorting by the creation date of the tag</li>
+            <li><code>semver</code>: Uses <code>sort -V</code> to sort all matching tags.</li>
+        </ul>
+    </td>
+  </tr>
+</table>
+
+The following fields are used exclusively by `version_type: branches`.
+<table>
+  <tr>
+    <th>Field Name</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>branch_filters</code> (Optional)</td>
+    <td>
+        A list of glob patterns used to filter branches. Only matching branches will be returned.
+        Patterns are <a href="http://man7.org/linux/man-pages/man7/glob.7.html">glob(7)</a>
+        compatible (as in, bash compatible).
+    </td>
+  </tr>
+  <tr>
+    <td><code>branch_regex</code> (Optional)</td>
+    <td>
+        Regex pattern used to filter branches. Only matching branches will be returned.
+        Patterns are <a href="https://www.gnu.org/software/grep/manual/grep.html">grep</a>
+        compatible (extended matching enabled).
+        Ignored if <code>branch_filters</code> is also specified.
     </td>
   </tr>
 </table>
@@ -386,6 +472,13 @@ resources:
 
 ## Behavior
 
+The behavior of the resource changes based on the specified `version_type`.
+Expand the relevant section to learn more about how the `check/get/put` steps
+work for each `version_type`.
+
+<details>
+    <summary><code>version_type: commits</code></summary>
+
 ### `check`: Check for new commits
 
 The repository is cloned (or pulled if already present), and any commits
@@ -395,15 +488,15 @@ for `HEAD` is returned.
 Any commits that contain the string `[ci skip]` will be ignored. This
 allows you to commit to your repository without triggering a new version.
 
-### `in`: Clone the repository, at the given ref
+### `get`: Clone the repository, at the given ref
 
 Clones the repository to the destination, and locks it down to a given ref.
 It will return the same given ref as version.
 
 `git-crypt` encrypted repositories will automatically be decrypted, when the
-correct key is provided set in `git_crypt_key`.
+correct key is provided set in `source.git_crypt_key`.
 
-#### Parameters
+#### `get` Parameters
 
 <table>
   <tr>
@@ -576,9 +669,8 @@ the case.
 * `.git/author_date`: Timestamp when the author originally created the commit.
 
 * `.git/committer`: For committer notification on failed builds. This special file `.git/committer` which is populated
-  with the email address of the author of the last commit. This can be used together with an email resource
-  like [mdomke/concourse-email-resource](https://github.com/mdomke/concourse-email-resource) to notify the committer in
-  an on_failure step.
+  with the email address of the author of the last commit. This can be used
+  together with a resource to send notifications in an `on_failure` step.
 
 * `.git/committer_name`: Name of the commit author.
 
@@ -597,7 +689,7 @@ the case.
 
 * `.git/metadata.json`: Complete metadata object in JSON format containing all metadata fields.
 
-### `out`: Push to a repository
+### `put`: Push to a repository
 
 Push the checked-out reference to the source's URI and branch. All tags are
 also pushed to the source. If a fast-forward for the branch is not possible
@@ -716,6 +808,160 @@ export GIT_CURL_VERBOSE=1
     </td>
   </tr>
 </table>
+
+</details>
+
+<details>
+    <summary><code>version_type: tags</code></summary>
+
+### `check`: Check for new tags
+
+Checks for new tags, filtering by `tag_filters` or `tag_regex` if specified.
+Each version emitted will be the tag and the ref it points to.
+
+### `get`: Clone the repository at the given tag
+
+Shallow clones the repository to the destination, checking out the given
+tag in a detached HEAD state.
+
+`git-crypt` encrypted repositories will automatically be decrypted, when the
+correct key is provided set in `source.git_crypt_key`.
+
+#### `get` Parameters
+
+<table>
+  <tr>
+    <th>Field Name</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>submodules</code><br/><i>Optional</i></td>
+    <td>
+        If <code>none</code>, submodules will not be fetched. If specified as a
+        list of paths, only the given paths will be fetched. If not specified,
+        or if <code>all</code> is explicitly specified, all submodules are
+        fetched.
+    </td>
+  </tr>
+  <tr>
+    <td><code>submodule_recursive</code><br/><i>Optional</i></td>
+    <td>If <code>false</code>, a flat submodules checkout is performed. If not specified, or if <code>true</code> is explicitly specified, a recursive checkout is performed.</td>
+  </tr>
+  <tr>
+    <td><code>submodule_remote</code><br/><i>Optional</i></td>
+    <td>
+        If <code>true</code>, the submodules are checked out for the specified
+        remote branch specified in the <code>.gitmodules</code> file of the
+        repository. If not specified, or if <code>false</code> is explicitly
+        specified, the tracked sub-module revision of the repository is used to
+        check out the submodules.
+    </td>
+  </tr>
+  <tr>
+    <td><code>disable_git_lfs</code><br/><i>Optional</i></td>
+    <td>If <code>true</code>, will not fetch Git LFS files.</td>
+  </tr>
+  <tr>
+    <td><code>short_ref_format</code><br/><i>Optional</i></td>
+    <td>When populating <code>.git/short_ref</code> use this <code>printf</code> format. Defaults to <code>%s</code>.</td>
+  </tr>
+  <tr>
+    <td><code>timestamp_format</code><br/><i>Optional</i></td>
+    <td>
+        When populating <code>.git/commit_timestamp</code> use this options to
+        pass to <a
+        href="https://git-scm.com/docs/git-log#Documentation/git-log.txt---dateltformatgt"><code>git
+        log --date</code></a>. Defaults to <code>iso8601</code>.
+    </td>
+  </tr>
+  <tr>
+    <td><code>debug</code> (Optional)</td>
+    <td>
+        Set to <code>true</code> to enable. Sets the following for check/get/put
+        steps of the resource. Secrets may not be correctly redacted due the
+        JSON encoding of longer secret strings.
+        <pre>
+set -x
+export GIT_TRACE=1
+export GIT_TRACE_PACKFILE=1
+export GIT_CURL_VERBOSE=1
+        </pre>
+    </td>
+  </tr>
+</table>
+
+#### GPG signature verification
+
+If `commit_verification_keys` or `commit_verification_key_ids` is specified in
+the source configuration, it will additionally verify that the resulting commit
+has been GPG signed by one of the specified keys. It will error if this is not
+the case.
+
+#### Additional files populated
+
+* `.git/tag`: Tag detected and checked out.
+
+* `.git/ref`: Full SHA-1 commit hash.
+
+* `.git/short_ref`: Short (first seven characters) of the `.git/ref`. Can be templated with `short_ref_format`
+  parameter.
+
+* `.git/author`: Commit author name.
+
+* `.git/author_date`: Timestamp when the author originally created the commit.
+
+* `.git/committer`: For committer notification on failed builds. This special file `.git/committer` which is populated
+  with the email address of the author of the last commit. This can be used
+  together with a resource to send notifications in an `on_failure` step.
+
+* `.git/committer_name`: Name of the commit author.
+
+* `.git/committer_date`: Timestamp when the commit was added to the repository.
+
+* `.git/commit_message`: For publishing the Git commit message on successful builds.
+
+* `.git/commit_timestamp`: For tagging builds with a timestamp.
+
+* `.git/url`: Web URL to view the commit (if applicable).
+
+* `.git/metadata.json`: Complete metadata object in JSON format containing all metadata fields.
+
+### `put`: No-op
+
+There is no implementation for this step. It will error if you try to use it. If
+you want to push new tags, use `version_type: commits`.
+
+</details>
+
+<details>
+    <summary><code>version_type: branches</code></summary>
+
+### `check`: Check for new branches
+
+The list of remote branches are enumerated, filtered by `branch_filters` or
+`branch_regex` if specified, and compared to the existing set of branches. If
+any branches are new or removed, a new version is emitted. Branches are sorted
+lexicographically using `sort` before comparing.
+
+If no branches are found a special `EMPTY` version is emitted.
+
+### `get`: List the given branches
+
+Produces a `branches.json` file containing a JSON array of the branches from the
+given version. Example of the contents of the file:
+```json
+[
+  "feature/add-button",
+  "feature/refactor-model",
+  "fix/ui-bug"
+]
+```
+
+### `put`: No-op
+
+There is no implementation for this step. It will error if you try to use it.
+
+</details>
 
 ## Development
 
