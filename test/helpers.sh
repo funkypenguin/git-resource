@@ -722,6 +722,67 @@ check_uri_with_filters() {
   }" | ${resource_dir}/check | tee /dev/stderr
 }
 
+check_uri_with_branches() {
+  jq -n "{
+    source: {
+      uri: $(echo $1 | jq -R .),
+      version_type: \"branches\"
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branches_from() {
+  local uri=$1
+  local prev_branches=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\"
+    },
+    version: {
+      branches: $(echo "$prev_branches" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branch_filters() {
+  local uri=$1
+  shift
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\",
+      branch_filters: $(echo "$@" | jq -R '. | split(" ")')
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branch_regex() {
+  local uri=$1
+  local branch_regex=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\",
+      branch_regex: $(echo "$branch_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branch_filters_and_regex() {
+  local uri=$1
+  local branch_regex=$2
+  shift 2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\",
+      branch_filters: $(echo "$@" | jq -R '. | split(" ")'),
+      branch_regex: $(echo "$branch_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
 get_uri() {
   jq -n "{
     source: {
