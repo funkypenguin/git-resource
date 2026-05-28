@@ -53,10 +53,12 @@ case "$version_type" in
         source "${assets}/out_commits.sh"
         ;;
     tags)
-        source "${assets}/out_tags.sh"
+        echo "version_type 'tags' does not support the put step. Use version_type 'commits' if you want to push tags."
+        exit 1
         ;;
     branches)
-        source "${assets}/out_branches.sh"
+        echo "version_type 'branches' does not support the put step"
+        exit 1
         ;;
     *)
         echo "unknown version_type: $version_type"
