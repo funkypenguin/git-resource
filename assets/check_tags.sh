@@ -14,6 +14,13 @@ fi
 
 cd "$destination"
 
+# git fetch exits 1 when the refspec matches no refs, so short-circuit
+# when the remote has no tags.
+if [[ -z "$(git ls-remote --tags "$uri")" ]]; then
+    echo '[]' >&3
+    exit 0
+fi
+
 git fetch --depth=1 \
     --filter=tree:0 \
     --no-tags \
@@ -66,9 +73,8 @@ fi
 if [[ "$sorted" == "false" ]]; then
     sorted_tags=$filtered_tags
 fi
-sorted_tags=$(echo "$sorted_tags" | grep -v '^[[:space:]]*$')
 
-jtags=$(echo "$sorted_tags" | jq -Rn \
+jtags=$(printf '%s' "$sorted_tags" | jq -Rn \
     --arg prevtag "$prev_tag" \
     '[inputs | (./"\t") | {tag: .[0], ref: .[1]}] | .[(map(.tag) | index($prevtag)):]')
 

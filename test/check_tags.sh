@@ -79,6 +79,19 @@ it_returns_new_tags() {
         | jq -e 'map(.tag) == ["v1.2.0","v1.2.1"]'
 }
 
+it_finds_no_tags() {
+    local repo=$(init_repo)
+
+    check_uri_with_tags $repo | jq -e '. == []'
+}
+
+it_returns_no_tags_due_to_filtering() {
+    local repo=$(init_repo)
+    make_annotated_tag $repo foo-1 "tag foo-1" true >/dev/null
+
+    check_uri_with_tags_filter $repo "nomatch*" | jq -e '. == []'
+}
+
 run it_gets_all_tags
 run it_uses_tag_filter
 run it_uses_tag_filters
@@ -86,3 +99,5 @@ run it_combines_tag_filter_and_tag_filters
 run it_uses_tag_regex
 run it_sorts_by_semver
 run it_returns_new_tags
+run it_finds_no_tags
+run it_returns_no_tags_due_to_filtering
