@@ -45,6 +45,10 @@ configure_credentials "$payload"
 # These vars are used by multiple version_type's
 uri=$(jq -r '.source.uri // ""' <<< "$payload")
 uri=${uri# }
+if [[ -z "$uri" ]]; then
+    echo "source.uri is required and must not be empty"
+    exit 1
+fi
 
 version_type=$(jq -r '.source.version_type // "commits"' <<< "$payload")
 

@@ -10,12 +10,6 @@ gpg_keyserver=$(jq -r '.source.gpg_keyserver // "hkp://keyserver.ubuntu.com/"' <
 short_ref_format=$(jq -r '(.params.short_ref_format // "%s")' <<< "$payload")
 timestamp_format=$(jq -r '(.params.timestamp_format // "iso8601")' <<< "$payload")
 
-if [ -z "$uri" ]; then
-  echo "invalid payload (missing uri):"
-  cat $payload
-  exit 1
-fi
-
 if [ "$disable_git_lfs" == "true" ]; then
   # skip the fetching of LFS objects for all following git commands
   export GIT_LFS_SKIP_SMUDGE=1
@@ -86,7 +80,7 @@ if [ "$submodules" != "none" ]; then
     fi
 
     # check for ssh submodule_credentials
-    submodule_cred=$(jq --arg submodule_url "${submodule_url}" '.source.submodule_credentials // [] | [.[] | select(.url==$submodule_url)] | first // empty' <<< ${payload})
+    submodule_cred=$(jq --arg submodule_url "${submodule_url}" '.source.submodule_credentials // [] | [.[] | select(.url==$submodule_url)] | first // empty' <<< "${payload}")
 
     if [[ -z ${submodule_cred} ]]; then
 

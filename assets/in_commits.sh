@@ -26,12 +26,6 @@ if [ -z "$fetch_tags" ] || [ "$fetch_tags" == "null" ]  ; then
   fetch_tags=$(jq -r '.source.fetch_tags' <<< "$payload")
 fi
 
-if [ -z "$uri" ]; then
-  echo "invalid payload (missing uri):"
-  cat $payload
-  exit 1
-fi
-
 branchflag=""
 if [ -n "$branch" ]; then
   branchflag="--branch $branch"

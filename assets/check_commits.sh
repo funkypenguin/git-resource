@@ -16,11 +16,6 @@ filter_exclude_all_match=$(jq -r '.source.commit_filter.exclude_all_match // fal
 version_depth=$(jq -r '.source.version_depth // 1' <<< "$payload")
 reverse=false
 
-if [[ -z "$uri" ]]; then
-    echo "source.uri is required and must not be empty"
-    exit 1
-fi
-
 # Optimization when last commit only is checked and skip ci is disabled
 # Get the commit id with git ls-remote instead of downloading the whole repo
 if [ "$skip_ci_disabled" = "true" ] && \

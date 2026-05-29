@@ -16,18 +16,13 @@ push_options=$(jq -r '.params.push_options // []' <<< "$payload")
 # useful for pushing to special ref types like refs/for in gerrit.
 refs_prefix=$(jq -r '.params.refs_prefix // "refs/heads"' <<< "$payload")
 
-if [ -z "$uri" ]; then
-  echo "invalid payload (missing uri)"
-  exit 1
-fi
-
 if [ -z "$branch" ] && [ "$only_tag" != "true" ] && [ -z "$override_branch" ]; then
-  echo "invalid payload (missing branch)"
+  echo "invalid payload. Must specify one of: source.branch, params.branch, or set params.only_tag=true"
   exit 1
 fi
 
 if [ -z "$repository" ]; then
-  echo "invalid payload (missing repository)"
+  echo "invalid payload (missing params.repository)"
   exit 1
 fi
 
