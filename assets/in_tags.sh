@@ -128,7 +128,7 @@ git --no-pager log -1 --pretty=format:"%an" > .git/committer_name
 # pulled ref in following tasks and resources.
 echo "${return_ref}" > .git/ref
 
-metadata=$(git_metadata)
+metadata=$(git_tag_metadata)
 echo "${metadata}" | jq '.' > .git/metadata.json
 
 # Store short ref with templating. Useful to build Docker images with
@@ -138,7 +138,7 @@ echo "${return_ref}" | cut -c1-7 | awk "{ printf \"${short_ref_format}\", \$1 }"
 # Write individual metadata fields to separate files
 
 # .git/commit - full SHA hash
-echo "${metadata}" | jq -r '.[] | select(.name == "commit") | .value' > .git/tag
+echo "${metadata}" | jq -r '.[] | select(.name == "tag") | .value' > .git/tag
 # .git/author - commit author name
 echo "${metadata}" | jq -r '.[] | select(.name == "author") | .value' > .git/author
 # .git/author_date - timestamp when the author originally created the commit
