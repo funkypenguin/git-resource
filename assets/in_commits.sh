@@ -27,8 +27,8 @@ if [ -z "$fetch_tags" ] || [ "$fetch_tags" == "null" ]  ; then
 fi
 
 if [ -z "$uri" ]; then
-  echo "invalid payload (missing uri):" >&2
-  cat $payload >&2
+  echo "invalid payload (missing uri):"
+  cat $payload
   exit 1
 fi
 
@@ -261,7 +261,10 @@ if [ "$clean_tags" == "true" ]; then
   git tag | xargs git tag -d
 fi
 
-jq -n "{
-  version: {ref: $(echo $return_ref | jq -R .)},
+jq -n \
+  --arg ref "$return_ref" \
+  --argjson metadata "$metadata" \
+  '{
+  version: {ref: $ref},
   metadata: $metadata
-}" >&3
+}' >&3
