@@ -1308,6 +1308,22 @@ get_branches() {
   }" | ${resource_dir}/in "$dest" | tee /dev/stderr
 }
 
+get_tags() {
+  local uri=$1
+  local tag=$2
+  local dest=$3
+
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\"
+    },
+    version: {
+      tag: $(echo $tag | jq -R .)
+    }
+  }" | ${resource_dir}/in "$dest" | tee /dev/stderr
+}
+
 get_uri_with_all_branches() {
   jq -n "{
     source: {
