@@ -1075,12 +1075,11 @@ it_returns_list_of_all_tags_in_metadata() {
   local ref1=$(make_commit_to_branch $repo branch-a)
   local ref2=$(make_annotated_tag $repo "v1.1-pre" "tag 1")
   local ref3=$(make_annotated_tag $repo "v1.1-final" "tag 2")
-  local ref4=$(make_commit_to_branch $repo branch-b)
-  local ref5=$(make_annotated_tag $repo "v1.1-branch-b" "tag 3")
+  local ref4=$(make_annotated_tag $repo "v1.1-branch-b" "tag 3")
 
   local dest=$TMPDIR/destination
   get_uri_at_branch_with_fetch_tags $repo branch-a $dest | jq -e "
-    .version == {ref: $(echo $ref4 | jq -R .)}
+    .version == {ref: $(echo $ref1 | jq -R .)}
     and
     (.metadata | .[] | select(.name == \"tags\") | .value == \"v1.1-branch-b,v1.1-final,v1.1-pre\")
   "

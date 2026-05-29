@@ -5,7 +5,9 @@ set -e
 $(dirname $0)/image.sh
 $(dirname $0)/check.sh
 $(dirname $0)/check_branches.sh
+$(dirname $0)/check_tags.sh
 $(dirname $0)/get_branches.sh
+$(dirname $0)/get_tags.sh
 $(dirname $0)/common.sh
 $(dirname $0)/get.sh
 $(dirname $0)/put.sh

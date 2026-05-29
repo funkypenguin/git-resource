@@ -40,18 +40,22 @@ init_repo() {
     git config maintenance.auto false
 
     # start with an initial commit
-    git \
+    local commit_date=$(_test_seq_date $(_test_next_seq .))
+    GIT_COMMITTER_DATE="$commit_date" git \
       -c user.name='test' \
       -c user.email='test@example.com' \
-      commit -q --allow-empty -m "init"
+      commit -q --allow-empty -m "init" \
+      --date "$commit_date"
 
     # create some bogus branch
     git checkout -q -b bogus
 
-    git \
+    commit_date=$(_test_seq_date $(_test_next_seq .))
+    GIT_COMMITTER_DATE="$commit_date" git \
       -c user.name='test' \
       -c user.email='test@example.com' \
-      commit -q --allow-empty -m "commit on other branch"
+      commit -q --allow-empty -m "commit on other branch" \
+      --date "$commit_date"
 
     # back to master
     git checkout -q master
@@ -127,6 +131,23 @@ fetch_head_ref() {
   git -C $repo rev-parse HEAD
 }
 
+# Per-repo monotonic counter used to give commits and waited tags distinct,
+# deterministic timestamps. git's committer-date and tag creator-date have
+# 1-second resolution; tests previously got distinct timestamps with `sleep 1`,
+# which made the suite slow. The counter is persisted to a file so it survives
+# the command-substitution subshells callers use.
+_test_next_seq() {
+  local repo=$1
+  local seq_file="$repo/.git/.test_seq"
+  local seq=$(( $(cat "$seq_file" 2>/dev/null || echo 0) + 1 ))
+  echo "$seq" > "$seq_file"
+  echo "$seq"
+}
+
+_test_seq_date() {
+  date -u -d "@$(( 946684800 + $1 ))" "+%Y-%m-%d %H:%M:%S +0000"
+}
+
 make_commit_to_file_on_branch() {
   local repo=$1
   local file=$2
@@ -154,10 +175,12 @@ make_commit_to_file_on_branch() {
         commit -q -m "commit $(wc -l $repo/$file) $msg" \
         --date "$(date -R -d '1 year')"
   else
-    git -C $repo \
+    local commit_date=$(_test_seq_date $(_test_next_seq $repo))
+    GIT_COMMITTER_DATE="$commit_date" git -C $repo \
       -c user.name='test' \
       -c user.email='test@example.com' \
-      commit -q -m "commit $(wc -l $repo/$file) $msg"
+      commit -q -m "commit $(wc -l $repo/$file) $msg" \
+      --date "$commit_date"
   fi
 
   # output resulting sha
@@ -183,10 +206,12 @@ make_commit_to_file_on_branch_with_path() {
   mkdir -p $repo/$path
   echo x >> $repo/$path/$file
   git -C $repo add $path/$file
-  git -C $repo \
+  local commit_date=$(_test_seq_date $(_test_next_seq $repo))
+  GIT_COMMITTER_DATE="$commit_date" git -C $repo \
     -c user.name='test' \
     -c user.email='test@example.com' \
-    commit -q -m "commit $(wc -l $repo/$path/$file) $msg"
+    commit -q -m "commit $(wc -l $repo/$path/$file) $msg" \
+    --date "$commit_date"
 
   # output resulting sha
   git -C $repo rev-parse HEAD
@@ -254,10 +279,12 @@ make_empty_commit() {
   local repo=$1
   local msg=${2-}
 
-  git -C $repo \
+  local commit_date=$(_test_seq_date $(_test_next_seq $repo))
+  GIT_COMMITTER_DATE="$commit_date" git -C $repo \
     -c user.name='test' \
     -c user.email='test@example.com' \
-    commit -q --allow-empty -m "commit $msg"
+    commit -q --allow-empty -m "commit $msg" \
+    --date "$commit_date"
 
   # output resulting sha
   git -C $repo rev-parse HEAD
@@ -271,11 +298,9 @@ make_annotated_tag() {
 
   if [ "$wait" == true ]; then
     # Give each successive waited tag a distinct, increasing creation date so tags
-    # sort deterministically. git's creatordate has only 1-second resolution, so
-    # rather than sleeping 1s per tag we inject a monotonically increasing committer
-    # date (the annotated tag's tagger/creator date).
-    _annotated_tag_seq=$(( ${_annotated_tag_seq:-0} + 1 ))
-    GIT_COMMITTER_DATE="$(date -u -d "@$(( 946684800 + _annotated_tag_seq ))" "+%Y-%m-%d %H:%M:%S +0000")" \
+    # sort deterministically. The shared per-repo counter (see _test_next_seq) is
+    # also bumped by commits, so commit and tag ordering interleaves correctly.
+    GIT_COMMITTER_DATE="$(_test_seq_date $(_test_next_seq $repo))" \
       git -C $repo tag -f -a "$tag" -m "$msg"
   else
     git -C $repo tag -f -a "$tag" -m "$msg"
