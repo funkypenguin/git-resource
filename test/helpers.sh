@@ -269,14 +269,19 @@ make_annotated_tag() {
   local msg=$3
   local wait=${4:-false}
 
-  git -C $repo tag -f -a "$tag" -m "$msg"
+  if [ "$wait" == true ]; then
+    # Give each successive waited tag a distinct, increasing creation date so tags
+    # sort deterministically. git's creatordate has only 1-second resolution, so
+    # rather than sleeping 1s per tag we inject a monotonically increasing committer
+    # date (the annotated tag's tagger/creator date).
+    _annotated_tag_seq=$(( ${_annotated_tag_seq:-0} + 1 ))
+    GIT_COMMITTER_DATE="$(date -u -d "@$(( 946684800 + _annotated_tag_seq ))" "+%Y-%m-%d %H:%M:%S +0000")" \
+      git -C $repo tag -f -a "$tag" -m "$msg"
+  else
+    git -C $repo tag -f -a "$tag" -m "$msg"
+  fi
 
   git -C $repo describe --tags --abbrev=0
-
-  if [ "$wait" == true ]; then
-    # Ensure creation date difference between tags - git does not sort with sub-second accuracy.
-    sleep 1
-  fi
 }
 
 check_uri() {
@@ -779,6 +784,93 @@ check_uri_with_branch_filters_and_regex() {
       version_type: \"branches\",
       branch_filters: $(echo "$@" | jq -R '. | split(" ")'),
       branch_regex: $(echo "$branch_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags() {
+  jq -n "{
+    source: {
+      uri: $(echo $1 | jq -R .),
+      version_type: \"tags\"
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_filter() {
+  local uri=$1
+  local tag_filter=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_filter: $(echo "$tag_filter" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_filters() {
+  local uri=$1
+  shift
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_filters: $(echo "$@" | jq -R '. | split(" ")')
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_filter_and_filters() {
+  local uri=$1
+  local tag_filter=$2
+  shift 2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_filter: $(echo "$tag_filter" | jq -R .),
+      tag_filters: $(echo "$@" | jq -R '. | split(" ")')
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_regex() {
+  local uri=$1
+  local tag_regex=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_regex: $(echo "$tag_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_sort() {
+  local uri=$1
+  local tag_sort=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_sort: $(echo "$tag_sort" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_sort_from() {
+  local uri=$1
+  local tag_sort=$2
+  local prev_tag=$3
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_sort: $(echo "$tag_sort" | jq -R .)
+    },
+    version: {
+      tag: $(echo "$prev_tag" | jq -R .)
     }
   }" | ${resource_dir}/check | tee /dev/stderr
 }
