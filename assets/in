@@ -15,11 +15,6 @@ if [ -z "$destination" ]; then
   exit 1
 fi
 
-bin_dir="${0%/*}"
-if [ "${bin_dir#/}" == "$bin_dir" ]; then
-  bin_dir="$PWD/$bin_dir"
-fi
-
 payload="$(cat <&0)"
 
 unknown_keys=$(jq --slurpfile schema "${assets}/in_schema.json" '(.params // [] | keys_unsorted) - ($schema[0] | keys_unsorted)' <<< "$payload")

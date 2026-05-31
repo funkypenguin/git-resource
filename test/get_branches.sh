@@ -26,7 +26,7 @@ it_saves_a_single_branch() {
   jq -e '. == ["feat/foo"]' < $dest/branches.json
 }
 
-it_saves_emtpy_array_when_version_is_none() {
+it_saves_empty_array_when_version_is_none() {
   local dest=$TMPDIR/destination
   mkdir -p $dest
 
@@ -46,5 +46,5 @@ it_saves_metadata_as_multiline_string() {
 
 run it_saves_the_given_branches
 run it_saves_a_single_branch
-run it_saves_emtpy_array_when_version_is_none
+run it_saves_empty_array_when_version_is_none
 run it_saves_metadata_as_multiline_string

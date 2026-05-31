@@ -77,7 +77,7 @@ fi
 git fetch origin refs/notes/*:refs/notes/* $tagflag
 
 if [ "$depth" -gt 0 ]; then
-  "$bin_dir"/deepen_shallow_clone_until_ref_is_found_then_check_out "$depth" "$ref" "$tagflag"
+  "${assets}/deepen_shallow_clone_until_ref_is_found_then_check_out" "$depth" "$ref" "$tagflag"
 else
   if [ "$search_remote_refs_flag" == "true" ] && ! [ -z "$branchflag" ] && ! git rev-list -1 $ref 2> /dev/null > /dev/null; then
     change_ref=$(git ls-remote origin | grep $ref | cut -f2)
@@ -145,7 +145,7 @@ if [ "$submodules" != "none" ]; then
     submodule_url="$(git config --file .gitmodules --get "submodule.${submodule_name}.url")"
 
     if [ "$depth" -gt 0 ]; then
-      git config "submodule.${submodule_name}.update" "!$bin_dir/deepen_shallow_clone_until_ref_is_found_then_check_out $depth"
+      git config "submodule.${submodule_name}.update" "!${assets}/deepen_shallow_clone_until_ref_is_found_then_check_out $depth"
     fi
 
     if ! [ -e "$submodule_path" ]; then

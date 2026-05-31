@@ -68,7 +68,7 @@ do
 done
 
 if [ "$version_depth" -le 0 ]; then
-  echo "Invalid version_depth. Must be <= 0."
+  echo "Invalid version_depth. Must be > 0."
   exit 1
 fi
 

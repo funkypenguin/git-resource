@@ -4,7 +4,7 @@ if [[ "$branches" == "NONE" ]]; then
     echo "[]" > "${destination}/branches.json"
     jq -n \
         --argjson version "$(jq -r '.version' <<< "$payload")" \
-        --arg branches_value "EMPTY" \
+        --arg branches_value "NONE" \
         '{version: $version, metadata: [{name: "branches", value: $branches_value}]}' >&3
     exit 0
 fi

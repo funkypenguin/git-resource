@@ -76,6 +76,6 @@ fi
 
 jtags=$(printf '%s' "$sorted_tags" | jq -Rn \
     --arg prevtag "$prev_tag" \
-    '[inputs | (./"\t") | {tag: .[0], ref: .[1]}] | .[(map(.tag) | index($prevtag)):]')
+    '[inputs | (./"\t") | {tag: .[0], ref: (.[2] // .[1])}] | .[(map(.tag) | index($prevtag)):]')
 
 echo "$jtags" >&3

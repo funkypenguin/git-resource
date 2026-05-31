@@ -137,7 +137,7 @@ echo "${return_ref}" | cut -c1-7 | awk "{ printf \"${short_ref_format}\", \$1 }"
 
 # Write individual metadata fields to separate files
 
-# .git/commit - full SHA hash
+# .git/tag - the tag that's been checked out
 echo "${metadata}" | jq -r '.[] | select(.name == "tag") | .value' > .git/tag
 # .git/author - commit author name
 echo "${metadata}" | jq -r '.[] | select(.name == "author") | .value' > .git/author
