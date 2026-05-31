@@ -74,10 +74,6 @@ it_returns_empty_array_when_no_new_branches() {
 
 it_returns_none_when_no_branches_found() {
   local repo=$(init_repo)
-  make_commit_to_branch $repo issue/hjkl >/dev/null
-  make_commit_to_branch $repo feat/oiuy >/dev/null
-  make_commit_to_branch $repo bug/876 >/dev/null
-  make_commit_to_branch $repo refactor/ui >/dev/null
 
   # only master and bogus branch exist, therefore no matching branches should be found
   check_uri_with_branch_filters $repo "issue/*" | jq -e '
@@ -91,3 +87,4 @@ run it_errors_if_branch_filters_and_branch_regex_are_set
 run it_uses_all_branch_filters
 run it_uses_branch_regex
 run it_returns_empty_array_when_no_new_branches
+run it_returns_none_when_no_branches_found

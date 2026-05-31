@@ -155,7 +155,7 @@ make_commit_to_file_on_branch() {
   local msg=${4-}
 
   # ensure branch exists
-  if ! git -C $repo rev-parse --verify $branch >/dev/null; then
+  if ! git -C $repo rev-parse --verify $branch &>/dev/null; then
     git -C $repo branch $branch master
   fi
 
@@ -195,7 +195,7 @@ make_commit_to_file_on_branch_with_path() {
   local msg=${5-}
 
   # ensure branch exists
-  if ! git -C $repo rev-parse --verify $branch >/dev/null; then
+  if ! git -C $repo rev-parse --verify $branch &>/dev/null; then
     git -C $repo branch $branch master
   fi
 
@@ -258,7 +258,7 @@ merge_branch() {
 }
 
 delete_public_key() {
-  if gpg -k ${fingerprint} > /dev/null; then
+  if gpg -k ${fingerprint} &> /dev/null; then
     gpg --batch --yes --delete-keys ${fingerprint}
   fi
 }
