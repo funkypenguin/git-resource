@@ -40,18 +40,22 @@ init_repo() {
     git config maintenance.auto false
 
     # start with an initial commit
-    git \
+    local commit_date=$(_test_seq_date $(_test_next_seq .))
+    GIT_COMMITTER_DATE="$commit_date" git \
       -c user.name='test' \
       -c user.email='test@example.com' \
-      commit -q --allow-empty -m "init"
+      commit -q --allow-empty -m "init" \
+      --date "$commit_date"
 
     # create some bogus branch
     git checkout -q -b bogus
 
-    git \
+    commit_date=$(_test_seq_date $(_test_next_seq .))
+    GIT_COMMITTER_DATE="$commit_date" git \
       -c user.name='test' \
       -c user.email='test@example.com' \
-      commit -q --allow-empty -m "commit on other branch"
+      commit -q --allow-empty -m "commit on other branch" \
+      --date "$commit_date"
 
     # back to master
     git checkout -q master
@@ -127,6 +131,23 @@ fetch_head_ref() {
   git -C $repo rev-parse HEAD
 }
 
+# Per-repo monotonic counter used to give commits and waited tags distinct,
+# deterministic timestamps. git's committer-date and tag creator-date have
+# 1-second resolution; tests previously got distinct timestamps with `sleep 1`,
+# which made the suite slow. The counter is persisted to a file so it survives
+# the command-substitution subshells callers use.
+_test_next_seq() {
+  local repo=$1
+  local seq_file="$repo/.git/.test_seq"
+  local seq=$(( $(cat "$seq_file" 2>/dev/null || echo 0) + 1 ))
+  echo "$seq" > "$seq_file"
+  echo "$seq"
+}
+
+_test_seq_date() {
+  date -u -d "@$(( 946684800 + $1 ))" "+%Y-%m-%d %H:%M:%S +0000"
+}
+
 make_commit_to_file_on_branch() {
   local repo=$1
   local file=$2
@@ -134,7 +155,7 @@ make_commit_to_file_on_branch() {
   local msg=${4-}
 
   # ensure branch exists
-  if ! git -C $repo rev-parse --verify $branch >/dev/null; then
+  if ! git -C $repo rev-parse --verify $branch &>/dev/null; then
     git -C $repo branch $branch master
   fi
 
@@ -154,10 +175,12 @@ make_commit_to_file_on_branch() {
         commit -q -m "commit $(wc -l $repo/$file) $msg" \
         --date "$(date -R -d '1 year')"
   else
-    git -C $repo \
+    local commit_date=$(_test_seq_date $(_test_next_seq $repo))
+    GIT_COMMITTER_DATE="$commit_date" git -C $repo \
       -c user.name='test' \
       -c user.email='test@example.com' \
-      commit -q -m "commit $(wc -l $repo/$file) $msg"
+      commit -q -m "commit $(wc -l $repo/$file) $msg" \
+      --date "$commit_date"
   fi
 
   # output resulting sha
@@ -172,7 +195,7 @@ make_commit_to_file_on_branch_with_path() {
   local msg=${5-}
 
   # ensure branch exists
-  if ! git -C $repo rev-parse --verify $branch >/dev/null; then
+  if ! git -C $repo rev-parse --verify $branch &>/dev/null; then
     git -C $repo branch $branch master
   fi
 
@@ -183,10 +206,12 @@ make_commit_to_file_on_branch_with_path() {
   mkdir -p $repo/$path
   echo x >> $repo/$path/$file
   git -C $repo add $path/$file
-  git -C $repo \
+  local commit_date=$(_test_seq_date $(_test_next_seq $repo))
+  GIT_COMMITTER_DATE="$commit_date" git -C $repo \
     -c user.name='test' \
     -c user.email='test@example.com' \
-    commit -q -m "commit $(wc -l $repo/$path/$file) $msg"
+    commit -q -m "commit $(wc -l $repo/$path/$file) $msg" \
+    --date "$commit_date"
 
   # output resulting sha
   git -C $repo rev-parse HEAD
@@ -233,7 +258,7 @@ merge_branch() {
 }
 
 delete_public_key() {
-  if gpg -k ${fingerprint} > /dev/null; then
+  if gpg -k ${fingerprint} &> /dev/null; then
     gpg --batch --yes --delete-keys ${fingerprint}
   fi
 }
@@ -254,10 +279,12 @@ make_empty_commit() {
   local repo=$1
   local msg=${2-}
 
-  git -C $repo \
+  local commit_date=$(_test_seq_date $(_test_next_seq $repo))
+  GIT_COMMITTER_DATE="$commit_date" git -C $repo \
     -c user.name='test' \
     -c user.email='test@example.com' \
-    commit -q --allow-empty -m "commit $msg"
+    commit -q --allow-empty -m "commit $msg" \
+    --date "$commit_date"
 
   # output resulting sha
   git -C $repo rev-parse HEAD
@@ -269,14 +296,17 @@ make_annotated_tag() {
   local msg=$3
   local wait=${4:-false}
 
-  git -C $repo tag -f -a "$tag" -m "$msg"
+  if [ "$wait" == true ]; then
+    # Give each successive waited tag a distinct, increasing creation date so tags
+    # sort deterministically. The shared per-repo counter (see _test_next_seq) is
+    # also bumped by commits, so commit and tag ordering interleaves correctly.
+    GIT_COMMITTER_DATE="$(_test_seq_date $(_test_next_seq $repo))" \
+      git -C $repo tag -f -a "$tag" -m "$msg"
+  else
+    git -C $repo tag -f -a "$tag" -m "$msg"
+  fi
 
   git -C $repo describe --tags --abbrev=0
-
-  if [ "$wait" == true ]; then
-    # Ensure creation date difference between tags - git does not sort with sub-second accuracy.
-    sleep 1
-  fi
 }
 
 check_uri() {
@@ -722,6 +752,154 @@ check_uri_with_filters() {
   }" | ${resource_dir}/check | tee /dev/stderr
 }
 
+check_uri_with_branches() {
+  jq -n "{
+    source: {
+      uri: $(echo $1 | jq -R .),
+      version_type: \"branches\"
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branches_from() {
+  local uri=$1
+  local prev_branches=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\"
+    },
+    version: {
+      branches: $(echo "$prev_branches" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branch_filters() {
+  local uri=$1
+  shift
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\",
+      branch_filters: $(echo "$@" | jq -R '. | split(" ")')
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branch_regex() {
+  local uri=$1
+  local branch_regex=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\",
+      branch_regex: $(echo "$branch_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_branch_filters_and_regex() {
+  local uri=$1
+  local branch_regex=$2
+  shift 2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\",
+      branch_filters: $(echo "$@" | jq -R '. | split(" ")'),
+      branch_regex: $(echo "$branch_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags() {
+  jq -n "{
+    source: {
+      uri: $(echo $1 | jq -R .),
+      version_type: \"tags\"
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_filter() {
+  local uri=$1
+  local tag_filter=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_filter: $(echo "$tag_filter" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_filters() {
+  local uri=$1
+  shift
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_filters: $(echo "$@" | jq -R '. | split(" ")')
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_filter_and_filters() {
+  local uri=$1
+  local tag_filter=$2
+  shift 2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_filter: $(echo "$tag_filter" | jq -R .),
+      tag_filters: $(echo "$@" | jq -R '. | split(" ")')
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_regex() {
+  local uri=$1
+  local tag_regex=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_regex: $(echo "$tag_regex" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_sort() {
+  local uri=$1
+  local tag_sort=$2
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_sort: $(echo "$tag_sort" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
+check_uri_with_tags_sort_from() {
+  local uri=$1
+  local tag_sort=$2
+  local prev_tag=$3
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\",
+      tag_sort: $(echo "$tag_sort" | jq -R .)
+    },
+    version: {
+      tag: $(echo "$prev_tag" | jq -R .)
+    }
+  }" | ${resource_dir}/check | tee /dev/stderr
+}
+
 get_uri() {
   jq -n "{
     source: {
@@ -1110,6 +1288,38 @@ get_uri_with_fetch_branches() {
     },
     params: {
       fetch: $(echo $fetch_branches | jq -R 'split(" ")')
+    }
+  }" | ${resource_dir}/in "$dest" | tee /dev/stderr
+}
+
+get_branches() {
+  local uri=$1
+  local branches=$2
+  local dest=$3
+
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"branches\"
+    },
+    version: {
+      branches: $(echo $branches | jq -R .)
+    }
+  }" | ${resource_dir}/in "$dest" | tee /dev/stderr
+}
+
+get_tags() {
+  local uri=$1
+  local tag=$2
+  local dest=$3
+
+  jq -n "{
+    source: {
+      uri: $(echo $uri | jq -R .),
+      version_type: \"tags\"
+    },
+    version: {
+      tag: $(echo $tag | jq -R .)
     }
   }" | ${resource_dir}/in "$dest" | tee /dev/stderr
 }

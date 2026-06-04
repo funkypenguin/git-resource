@@ -1,0 +1,218 @@
+branch=$(jq -r '.source.branch // ""' <<< "$payload")
+repository=$(jq -r '.params.repository // ""' <<< "$payload")
+tag=$(jq -r '.params.tag // ""' <<< "$payload")
+tag_prefix=$(jq -r '.params.tag_prefix // ""' <<< "$payload")
+rebase=$(jq -r '.params.rebase // false' <<< "$payload")
+rebase_strategy=$(jq -r '.params.rebase_strategy // ""' <<< "$payload")
+rebase_strategy_option=$(jq -r '.params.rebase_strategy_option // ""' <<< "$payload")
+merge=$(jq -r '.params.merge // false' <<< "$payload")
+returning=$(jq -r '.params.returning // "merged"' <<< "$payload")
+force=$(jq -r '.params.force // false' <<< "$payload")
+only_tag=$(jq -r '.params.only_tag // false' <<< "$payload")
+annotation_file=$(jq -r '.params.annotate // ""' <<< "$payload")
+notes_file=$(jq -r '.params.notes // ""' <<< "$payload")
+override_branch=$(jq -r '.params.branch // ""' <<< "$payload")
+push_options=$(jq -r '.params.push_options // []' <<< "$payload")
+# useful for pushing to special ref types like refs/for in gerrit.
+refs_prefix=$(jq -r '.params.refs_prefix // "refs/heads"' <<< "$payload")
+
+if [ -z "$branch" ] && [ "$only_tag" != "true" ] && [ -z "$override_branch" ]; then
+  echo "invalid payload. Must specify one of: source.branch, params.branch, or set params.only_tag=true"
+  exit 1
+fi
+
+if [ -z "$repository" ]; then
+  echo "invalid payload (missing params.repository)"
+  exit 1
+fi
+
+if [ "$merge" = "true" ] && [ "$rebase" = "true" ]; then
+  echo "invalid push strategy (either merge or rebase can be set, but not both)"
+  exit 1
+fi
+
+cd $source
+
+if [ -n "$tag" ] && [ ! -f "$tag" ]; then
+  echo "tag file '$tag' does not exist"
+  exit 1
+fi
+
+if [ -n "$annotation_file" ] && [ ! -f $annotation_file ]; then
+  echo "annotation file '$annotation_file' does not exist"
+  exit 1
+fi
+
+forceflag=""
+if [ $force = "true" ]; then
+  forceflag="--force"
+fi
+
+push_options_flags=""
+if [ "$push_options" != "[]" ]; then
+  push_options_flags=$(echo "$push_options" | jq -r '.[] | "--push-option " + .')
+fi
+
+if [ -n "$override_branch" ]; then
+  echo "Override $branch with $override_branch"
+  branch=$override_branch
+fi
+
+tag_name=""
+if [ -n "$tag" ]; then
+  tag_name="$(cat $tag)"
+fi
+
+annotate=""
+if [ -n "$annotation_file" ]; then
+  annotate=" -a -F $source/$annotation_file"
+fi
+
+cd $repository
+
+tag() {
+  if [ -n "$tag_name" ]; then
+    git tag -f "${tag_prefix}${tag_name}" $annotate
+  fi
+}
+
+push_src_and_tags() {
+  git push --tags push-target HEAD:$refs_prefix/$branch $forceflag $push_options_flags
+}
+
+push_tags() {
+  git push --tags push-target $forceflag $push_options_flags
+}
+
+add_and_push_notes() {
+  if [ -n "$notes_file" ]; then
+    git notes add -F "../${notes_file}"
+    git push push-target refs/notes/* $push_options_flags
+  fi
+}
+
+push_with_result_check() {
+  # oh god this is really the only way to do this
+  result_file=$(mktemp $TMPDIR/git-result.XXXXXX)
+
+  echo 0 > $result_file
+
+  {
+    tag 2>&1 && push_src_and_tags 2>&1 && add_and_push_notes 2>&1 || {
+      echo $? > $result_file
+    }
+  } | tee $TMPDIR/push-failure
+
+  # despite what you may think, the embedded cat does not include the
+  # trailing linebreak
+  #
+  # $() appears to trim it
+  #
+  # someone rewrite this please
+  #
+  # pull requests welcome
+  if [ "$(cat $result_file)" = "0" ]; then
+    echo "pushed"
+    eval "$1=0"
+    return
+  fi
+
+  # failed for reason other than non-fast-forward / fetch-first
+  if ! grep -q '\[rejected\]\|\[remote rejected\].*cannot lock ref' $TMPDIR/push-failure; then
+    echo "failed with non-rebase error"
+    eval "$1=1"
+    return
+  fi
+
+  eval "$1=2"
+}
+
+git remote add push-target $uri
+commit_to_push=$(git rev-parse HEAD)
+
+if [ "$only_tag" = "true" ]; then
+  tag
+  push_tags
+elif [ "$merge" = "true" ]; then
+  while true; do
+    echo "merging..."
+
+    git reset --hard $commit_to_push
+
+    git fetch push-target "refs/notes/*:refs/notes/*"
+    git pull --no-edit push-target $branch
+
+    result="0"
+    push_with_result_check result
+    if [ "$result" = "0" ]; then
+      break
+    elif [ "$result" = "1" ]; then
+      exit 1
+    fi
+
+    echo "merging and trying again..."
+  done
+elif [ "$rebase" = "true" ]; then
+  rebase_cmd="git pull --rebase=merges"
+
+  # Add strategy if specified
+  if [ -n "$rebase_strategy" ]; then
+    rebase_cmd="$rebase_cmd --strategy=$rebase_strategy"
+  fi
+
+  # Add strategy options if specified, can be string or array
+  if [ -n "$rebase_strategy_option" ] && [ "$rebase_strategy_option" != "null" ]; then
+    # Check if it's an array or string
+    if echo "$rebase_strategy_option" | jq -e 'type == "array"' > /dev/null 2>&1; then
+      # It's already an array from jq
+      strategy_options=$(echo "$rebase_strategy_option" | jq -r '.[] | "-X" + .')
+      for opt in $strategy_options; do
+        rebase_cmd="$rebase_cmd $opt"
+      done
+    else
+      # It's a string - could be space-separated options
+      for opt in $rebase_strategy_option; do
+        rebase_cmd="$rebase_cmd -X$opt"
+      done
+    fi
+  fi
+
+  while true; do
+    echo "rebasing using rebase command: $rebase_cmd push-target $branch..."
+
+    git fetch push-target "refs/notes/*:refs/notes/*"
+    $rebase_cmd push-target $branch
+
+    result="0"
+    push_with_result_check result
+    if [ "$result" = "0" ]; then
+      break
+    elif [ "$result" = "1" ]; then
+      exit 1
+    fi
+
+    echo "rebasing and trying again..."
+  done
+else
+  tag
+  push_src_and_tags
+  add_and_push_notes
+fi
+
+if [ "$merge" = "true" ] && [ "$returning" = "unmerged" ]; then
+  version_ref="$(echo "$commit_to_push" | jq -R .)"
+else
+  version_ref="$(git rev-parse HEAD | jq -R .)"
+fi
+
+if [ -n "$override_branch" ]; then
+  jq -n "{
+    version: {branch: $(echo $override_branch | jq -R .), ref: $version_ref},
+    metadata: $(git_metadata)
+  }" >&3
+else
+  jq -n "{
+    version: {ref: $version_ref},
+    metadata: $(git_metadata)
+  }" >&3
+fi

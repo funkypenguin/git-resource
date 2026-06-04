@@ -120,28 +120,31 @@ configure_git_ssl_verification() {
 }
 
 add_git_metadata_basic() {
-  local commit=$(git rev-parse HEAD | jq -R .)
-  local author=$(git log -1 --format=format:%an | jq -s -R .)
-  local author_date=$(git log -1 --format=format:%ai | jq -R .)
+  local commit=$(git rev-parse HEAD)
+  local author=$(git log -1 --format=format:%an)
+  local author_date=$(git log -1 --format=format:%ai)
 
-  jq ". + [
-    {name: \"commit\", value: ${commit}},
-    {name: \"author\", value: ${author}},
-    {name: \"author_date\", value: ${author_date}, type: \"time\"}
-  ]"
+  jq --arg commit "$commit" \
+     --arg author "$author" \
+     --arg author_date "$author_date" \
+  '. + [
+    {name: "commit", value: $commit},
+    {name: "author", value: $author},
+    {name: "author_date", value: $author_date, type: "time"}
+  ]'
 }
 
 add_git_metadata_committer() {
-  local author=$(git log -1 --format=format:%an | jq -s -R .)
-  local author_date=$(git log -1 --format=format:%ai | jq -R .)
-  local committer=$(git log -1 --format=format:%cn | jq -s -R .)
-  local committer_date=$(git log -1 --format=format:%ci | jq -R .)
+  local author=$(git log -1 --format=format:%an)
+  local author_date=$(git log -1 --format=format:%ai)
+  local committer=$(git log -1 --format=format:%cn)
+  local committer_date=$(git log -1 --format=format:%ci)
 
   if [ "$author" = "$committer" ] && [ "$author_date" = "$committer_date" ]; then
-    jq ". + [
-      {name: \"committer\", value: ${committer}},
-      {name: \"committer_date\", value: ${committer_date}, type: \"time\"}
-    ]"
+    jq --arg committer "$committer" --arg committer_date "$committer_date" '. + [
+      {name: "committer", value: $committer},
+      {name: "committer_date", value: $committer_date, type: "time"}
+    ]'
   else
     cat
   fi
@@ -153,9 +156,9 @@ add_git_metadata_branch() {
     jq -R  ". | select(. != \"\")" | jq -r -s "map(.) | join (\",\")")
 
   if [ -n "${branch}" ]; then
-    jq ". + [
-      {name: \"branch\", value: \"${branch}\"}
-    ]"
+    jq --arg branch "$branch" '. + [
+      {name: "branch", value: $branch}
+    ]'
   else
     cat
   fi
@@ -167,20 +170,32 @@ add_git_metadata_tags() {
     jq -r -s "map(.) | join(\",\")")
 
   if [ -n "${tags}" ]; then
-    jq ". + [
-      {name: \"tags\", value: \"${tags}\"}
-    ]"
+    jq --arg tags "$tags" '. + [
+      {name: "tags", value: $tags}
+    ]'
+  else
+    cat
+  fi
+}
+
+add_git_metadata_tag() {
+  local tag=$(git tag --points-at HEAD)
+
+  if [ -n "${tag}" ]; then
+    jq --arg tag "$tag" '. + [
+      {name: "tag", value: $tag}
+    ]'
   else
     cat
   fi
 }
 
 add_git_metadata_message() {
-  local message=$(git log -1 --format=format:%B | head -c 10240 | jq -s -R .)
+  local message=$(git log -1 --format=format:%B | head -c 10240)
 
-  jq ". + [
-    {name: \"message\", value: ${message}, type: \"message\"}
-  ]"
+  jq --arg message "$message" '. + [
+    {name: "message", value: $message, type: "message"}
+  ]'
 }
 
 add_git_metadata_url() {
@@ -213,9 +228,9 @@ add_git_metadata_url() {
     esac
 
     if [ -n "$url" ]; then
-      jq ". + [
-        {name: \"url\", value: \"${url}\"}
-      ]"
+      jq --arg url "$url" '. + [
+        {name: "url", value: $url}
+      ]'
     else
       jq ". + []"
     fi
@@ -228,6 +243,15 @@ git_metadata() {
     add_git_metadata_committer | \
     add_git_metadata_branch | \
     add_git_metadata_tags | \
+    add_git_metadata_message | \
+    add_git_metadata_url
+}
+
+git_tag_metadata() {
+  jq -n "[]" | \
+    add_git_metadata_basic | \
+    add_git_metadata_committer | \
+    add_git_metadata_tag | \
     add_git_metadata_message | \
     add_git_metadata_url
 }

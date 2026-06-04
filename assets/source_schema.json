@@ -1,4 +1,5 @@
 {
+  "version_type": "",
   "uri": "",
   "branch": "",
   "private_key": "",
@@ -26,5 +27,9 @@
   "commit_filter": "",
   "version_depth": "",
   "search_remote_refs": "",
-  "debug": ""
+  "debug": "",
+  "branch_filters": "",
+  "branch_regex": "",
+  "tag_filters": "",
+  "tag_sort": ""
 }
