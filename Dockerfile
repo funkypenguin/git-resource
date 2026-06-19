@@ -56,7 +56,7 @@ ADD assets/ /opt/resource/
 RUN chmod +x /opt/resource/*
 
 FROM resource AS tests
-RUN apk --no-cache add cmd:ssh-keygen
+RUN apk --no-cache add openssh-keygen
 ADD test/ /tests
 RUN /tests/all.sh
 
