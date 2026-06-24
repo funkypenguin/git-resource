@@ -365,7 +365,7 @@ The following fields are used exclusively by `version_type: tags`.
     <td> Sorting is applied after filtering. Accepts the following values:
         <ul>
             <li><code>creatordate</code> (Default): Uses git's built-in sorting by the creation date of the tag</li>
-            <li><code>semver</code>: Uses <code>sort -V</code> to sort all matching tags.</li>
+            <li><code>version</code>: Uses <code>sort -V</code> to sort all matching tags.</li>
         </ul>
     </td>
   </tr>

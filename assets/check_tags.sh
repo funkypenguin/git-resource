@@ -65,7 +65,7 @@ fi
 
 sorted_tags=""
 sorted=false
-if [[ "$tag_sort" == "semver" ]]; then
+if [[ "$tag_sort" == "version" ]]; then
     sorted=true
     sorted_tags=$(echo "$filtered_tags" | sort -V)
 fi

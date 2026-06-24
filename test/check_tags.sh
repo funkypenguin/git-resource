@@ -55,7 +55,7 @@ it_uses_tag_regex() {
     check_uri_with_tags_regex $repo "foo-.*" | jq -e 'map(.tag) == ["foo-1","foo-2"]'
 }
 
-it_sorts_by_semver() {
+it_sorts_by_version() {
     local repo=$(init_repo)
     make_annotated_tag $repo v1.1.0 "tag v1.1.0" >/dev/null
     make_annotated_tag $repo v1.2.0 "tag v1.2.0" >/dev/null
@@ -63,7 +63,7 @@ it_sorts_by_semver() {
     make_annotated_tag $repo v1.1.2 "tag v1.1.2" >/dev/null
     make_annotated_tag $repo v1.2.1 "tag v1.2.1" >/dev/null
 
-    check_uri_with_tags_sort $repo "semver" \
+    check_uri_with_tags_sort $repo "version" \
         | jq -e 'map(.tag) == ["v1.1.0","v1.1.1","v1.1.2","v1.2.0","v1.2.1"]'
 }
 
@@ -75,7 +75,7 @@ it_returns_new_tags() {
     make_annotated_tag $repo v1.1.2 "tag v1.1.2" >/dev/null
     make_annotated_tag $repo v1.2.1 "tag v1.2.1" >/dev/null
 
-    check_uri_with_tags_sort_from $repo "semver" "v1.2.0" \
+    check_uri_with_tags_sort_from $repo "version" "v1.2.0" \
         | jq -e 'map(.tag) == ["v1.2.0","v1.2.1"]'
 }
 
@@ -97,7 +97,7 @@ run it_uses_tag_filter
 run it_uses_tag_filters
 run it_combines_tag_filter_and_tag_filters
 run it_uses_tag_regex
-run it_sorts_by_semver
+run it_sorts_by_version
 run it_returns_new_tags
 run it_finds_no_tags
 run it_returns_no_tags_due_to_filtering
