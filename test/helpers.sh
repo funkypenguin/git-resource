@@ -301,9 +301,28 @@ make_annotated_tag() {
     # sort deterministically. The shared per-repo counter (see _test_next_seq) is
     # also bumped by commits, so commit and tag ordering interleaves correctly.
     GIT_COMMITTER_DATE="$(_test_seq_date $(_test_next_seq $repo))" \
-      git -C $repo tag -f -a "$tag" -m "$msg"
+        git -C $repo tag -f -a "$tag" -m "$msg"
   else
     git -C $repo tag -f -a "$tag" -m "$msg"
+  fi
+
+  git -C $repo describe --tags --abbrev=0
+}
+
+make_lightweight_tag() {
+  local repo=$1
+  local tag=$2
+  local wait=${3:-false}
+
+  if [ "$wait" == true ]; then
+    # lightweight tags don't use $GIT_COMMITTER_DATE since they point to a
+    # commit object with an existing creatordate. To ensure order of tag
+    # creation is respected in our tests, create a new commit and make the
+    # lightweight tag against that commit
+    make_commit $repo
+    git -C $repo tag -f "$tag"
+  else
+    git -C $repo tag -f "$tag"
   fi
 
   git -C $repo describe --tags --abbrev=0
