@@ -28,6 +28,10 @@ git fetch --depth=1 \
     '+refs/tags/*:refs/tags/*'
 
 # get all tags, sorting by creation-date
+# --format results in tab-separated values. First column is the tag, second is
+# the commit sha the tag points to. If it's an annotated tag, the third column
+# will dereference the tag to the actual commit sha it points to; otherwise the
+# third column will be empty.
 all_tags=$(git for-each-ref \
     --sort=creatordate \
     --format='%(refname:short)%09%(objectname)%09%(*objectname)' \
@@ -76,6 +80,6 @@ fi
 
 jtags=$(printf '%s' "$sorted_tags" | jq -Rn \
     --arg prevtag "$prev_tag" \
-    '[inputs | (./"\t") | {tag: .[0], ref: (.[2] // .[1])}] | .[(map(.tag) | index($prevtag)):]')
+    '[inputs | (./"\t") | map(select(. != "")) | {tag: .[0], ref: (.[2] // .[1])}] | .[(map(.tag) | index($prevtag)):]')
 
 echo "$jtags" >&3
