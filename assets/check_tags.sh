@@ -80,6 +80,6 @@ fi
 
 jtags=$(printf '%s' "$sorted_tags" | jq -Rn \
     --arg prevtag "$prev_tag" \
-    '[inputs | (./"\t") | map(select(. != "")) | {tag: .[0], ref: (.[2] // .[1])}] | .[(map(.tag) | index($prevtag)):]')
+    '[inputs | (./"\t") | map(select(. != "")) | {tag: .[0], ref: (.[2] // .[1])}] | .[(map(.tag) | index($prevtag)):] | map(select((.tag // "") != "" and (.ref // "") != ""))')
 
 echo "$jtags" >&3
