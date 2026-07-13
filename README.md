@@ -358,6 +358,11 @@ The following fields are used exclusively by `version_type: tags`.
         Patterns are <a href="https://www.gnu.org/software/grep/manual/grep.html">grep</a>
         compatible (extended matching enabled).
         Ignored if <code>tag_filter(s)</code> is also specified.
+        Examples:
+        <ul>
+        <li><code>^v[0-9]+\.[0-9]+\.[0-9]+$</code> - Matches tags like <code>v1.2.3</code> and won't match tags that include metadata or labels</li>
+        <li><code>^v2\.[0-9]+\.[0-9]+$</code> - Matches tags starting with <code>v2</code></li>
+        <ul>
     </td>
   </tr>
   <tr>
